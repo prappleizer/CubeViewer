@@ -41,10 +41,17 @@ RdBu256 = create_smooth_rdbu_colormap()
 
 # --- FITSCube Class Definition ---
 class FITSCube:
-    def __init__(self, file_path, redshift=0.0, crop_wl=200):
+    def __init__(
+        self,
+        file_path,
+        redshift=0.0,
+        crop_wl=200,
+        extension=0,
+    ):
         self.file_path = file_path
         self.redshift = redshift
         self.crop_wl_width = crop_wl
+        self.extension = extension
         self.data, self.wcs = self.load_fits_data()
         self.wl_observed = self.compute_wavelengths()[crop_wl:-crop_wl]
         self.wl_rest = self.wl_observed / (1 + self.redshift)
@@ -58,8 +65,9 @@ class FITSCube:
 
     def load_fits_data(self):
         """Loads FITS file and WCS information."""
-        data = fits.getdata(self.file_path)
-        wcs = WCS(fits.getheader(self.file_path))
+        with fits.open(self.file_path) as hdu:
+            data = hdu[self.extension].data
+            wcs = WCS(hdu[0].header)
         return data, wcs
 
     def compute_wavelengths(self):
@@ -150,6 +158,7 @@ fileinput = Select(
     options=[os.path.basename(i) for i in fits_files],
     value=os.path.basename(fits_files[0]),
 )
+extension_input = Select(options=["0", "4"], value="0")
 
 
 def load_new_fits_file(attr, old, new):
@@ -159,7 +168,9 @@ def load_new_fits_file(attr, old, new):
 
     # Reinitialize the FITSCube object with the new file
     global cube
-    cube = FITSCube(cube_path, redshift=redshift_value)
+    cube = FITSCube(
+        cube_path, redshift=redshift_value, extension=int(extension_input.value)
+    )
 
     # Update moment zero map and spectrum plot based on the new cube
     min_wl = np.min(cube.wl_observed) + 100
@@ -193,13 +204,15 @@ def load_new_fits_file(attr, old, new):
 
 # Attach the callback to the file input dropdown
 fileinput.on_change("value", load_new_fits_file)
-
+extension_input.on_change("value", load_new_fits_file)
 
 redshift_input = TextInput(title="Redshift", value="0.0")
 
 # Initialize the FITSCube with the first file
 cube = FITSCube(
-    os.path.join(directory, fileinput.value), redshift=float(redshift_input.value)
+    os.path.join(directory, fileinput.value),
+    redshift=float(redshift_input.value),
+    extension=0,
 )
 
 # Create the moment 0 map and plot it
@@ -422,7 +435,7 @@ layout = column(
     row(
         column(range_slider, p_map, sizing_mode="stretch_width"),
         column(
-            fileinput,
+            row(fileinput, extension_input),
             row(min_wl_input, max_wl_input, set_button),
             row(redshift_input, set_z_button, frame_toggle),
             row(zsetsuccess),
